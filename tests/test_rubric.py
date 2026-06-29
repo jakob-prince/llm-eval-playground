@@ -58,3 +58,52 @@ def test_grade_end_to_end_with_fake_judge() -> None:
     assert {s.name for s in res.scores} == {"clear answer", "correct facts"}
     # both criteria's words appear -> perfect score
     assert res.weighted_total == 1.0
+
+
+def test_empty_criteria_yields_zero_total() -> None:
+    """grade() with no criteria returns empty scores and zero weighted_total."""
+    result = grade(prompt="q", response="r", criteria=[], judge=KeywordJudge())
+    assert result.scores == []
+    assert result.weighted_total == 0.0
+
+
+def test_grade_clamps_judge_score_above_1() -> None:
+    """grade() clamps a criterion score above 1.0 returned by the judge."""
+
+    class HighJudge:
+        def score(self, *, prompt: str, response: str, criterion: Criterion) -> CriterionScore:
+            return CriterionScore(name=criterion.name, score=2.5, rationale="")
+
+    result = grade(prompt="q", response="r", criteria=[Criterion("x", "")], judge=HighJudge())
+    assert result.scores[0].score == 1.0
+    assert result.weighted_total == 1.0
+
+
+def test_grade_clamps_judge_score_below_0() -> None:
+    """grade() clamps a criterion score below 0.0 returned by the judge."""
+
+    class LowJudge:
+        def score(self, *, prompt: str, response: str, criterion: Criterion) -> CriterionScore:
+            return CriterionScore(name=criterion.name, score=-0.5, rationale="")
+
+    result = grade(prompt="q", response="r", criteria=[Criterion("x", "")], judge=LowJudge())
+    assert result.scores[0].score == 0.0
+    assert result.weighted_total == 0.0
+
+
+def test_weighted_total_score_for_unknown_criterion_ignored() -> None:
+    """A score whose name is not in criteria is silently skipped."""
+    criteria = [Criterion("known", "", weight=1.0)]
+    scores = [
+        CriterionScore("known", 1.0, ""),
+        CriterionScore("not_in_criteria", 0.0, ""),
+    ]
+    assert weighted_total(scores, criteria) == 1.0
+
+
+def test_weighted_total_negative_weight_skipped() -> None:
+    """Criteria with weight <= 0 are excluded from the weighted average."""
+    criteria = [Criterion("neg", "", weight=-1.0), Criterion("pos", "", weight=2.0)]
+    scores = [CriterionScore("neg", 0.0, ""), CriterionScore("pos", 1.0, "")]
+    # Only the positive-weight criterion contributes -> total == 1.0
+    assert weighted_total(scores, criteria) == 1.0
